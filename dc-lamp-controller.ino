@@ -1,12 +1,25 @@
 #include <SPI.h>
 #include <WiFiNINA.h>
+#include <PubSubClient.h>
 
 // wifi
-const char ssid[] = "ssid";
-const char pass[] = "password";
+const char SSID[] = "ssid";
+const char PASS[] = "password";
 
 int status = WL_IDLE_STATUS;
 WiFiServer server(80);
+WiFiClient client;
+
+// mqtt
+const IPAddress MQTT_SERVER(192, 168, 16, 11);
+const int MQTT_PORT = 1883;
+const char* DEVICE_ID = "living_room_lamp_1";
+const char* MODE_TOPIC = "Home/Living Room Lamp/light_mode";
+const char* LEVEL_TOPIC = "Home/Living Room Lamp/light_level";
+const int MQTT_UPDATE_FREQ = 100;
+WiFiClient client2;
+PubSubClient mqtt_client(client2);
+int mqtt_tics = 0;
 
 // pin connections
 const int CONTROL_PIN   = 3;
@@ -20,6 +33,7 @@ const int LIGHT_LEVELS     = 10;
 const int TIC_LENGTH       = 100;
 
 // light modes
+const char* const LEVEL_NAMES[] = { "STATIC", "FLASH", "BREATH", "PULSE" };
 const int STATIC_MODE = 0;
 const int FLASH_MODE  = 1;
 const int BREATH_MODE = 2;
@@ -62,13 +76,15 @@ void setup()
   while (status != WL_CONNECTED)
   {
     Serial.print("Attempting to connect to Network named: ");
-    Serial.println(ssid); 
+    Serial.println(SSID); 
 
     // Connect to WPA/WPA2 network
-    status = WiFi.begin(ssid, pass);
+    status = WiFi.begin(SSID, PASS);
     delay(10000);
   }
 
+  mqtt_client.setServer(MQTT_SERVER, MQTT_PORT);
+  mqtt_client.setCallback(onUpdate);
   server.begin();
   printWifiStatus();
   
@@ -103,7 +119,7 @@ void loop()
   button_state = new_button_state;
 
   // check for incoming clients
-  WiFiClient client = server.available();
+  client = server.available();
   if (client)
   {
     String currentLine = "";
@@ -384,11 +400,74 @@ void loop()
 
   // output
   analogWrite(CONTROL_PIN, light_level);
-  Serial.println(light_level);
+  //Serial.println(light_level);
+
+  // mqtt
+  if (mqtt_tics == 0)
+  {
+    if (!mqtt_client.connected())
+    {
+      mqtt_client.connect(DEVICE_ID);
+      mqtt_client.subscribe(MODE_TOPIC);
+      mqtt_client.subscribe(LEVEL_TOPIC);
+    }
+    mqtt_client.loop();
+    mqtt_client.publish(MODE_TOPIC, LEVEL_NAMES[light_mode]);
+    char buff[3];
+    mqtt_client.publish(LEVEL_TOPIC, itoa(mode_data, buff, 10));
+  }
+  ++mqtt_tics;
+  if (mqtt_tics == MQTT_UPDATE_FREQ)
+  {
+    mqtt_tics = 0;
+  }
 
   // tic
   delay(TIC_LENGTH);
   ++tics;
+}
+
+void onUpdate(char* topic, byte* payload, unsigned int len)
+{
+  // TODO updates come in super delayed and appear to get worse over time
+  // TODO look into preventing updates from Arduino coming through
+  Serial.print("Got update on ");
+  Serial.print(topic);
+  Serial.print(" of length ");
+  Serial.println(len);
+  char value[len];
+  for (int i = 0; i < len; ++i)
+  {
+    value[i] = (char) payload[i];
+  }
+  if (strcmp(topic, MODE_TOPIC) == 0)
+  {
+    // TODO seems to have ! after externally pushed strings, but length doesn't include it
+    Serial.println(value);
+    for (int i = 0; i < 4; ++i)
+    {
+      if (strcmp(LEVEL_NAMES[i], value) == 0)
+      {
+        if (light_mode != i)
+        {
+          light_mode = i;
+          Serial.print("Changed light mode to: ");
+          Serial.println(i);
+        }
+        break;
+      }
+    }
+  }
+  else if (strcmp(topic, LEVEL_TOPIC) == 0)
+  {
+    int level = String(value).toInt();
+    if (level != mode_data)
+    {
+      Serial.print("Changed light level to: ");
+      Serial.println(value);
+      mode_data = level;
+    }
+  }
 }
 
 void printWifiStatus()
