@@ -8,17 +8,17 @@ const char PASS[] = "liamisthebest";
 
 int status = WL_IDLE_STATUS;
 WiFiServer server(80);
-WiFiClient client;
 
 // mqtt
 const IPAddress MQTT_SERVER(192, 168, 16, 11);
 const int MQTT_PORT = 1883;
 const char* DEVICE_ID = "living_room_lamp_1";
+const char* STATE_TOPIC = "Home/Living Room Lamp/light_state";
 const char* MODE_TOPIC = "Home/Living Room Lamp/light_mode";
 const char* LEVEL_TOPIC = "Home/Living Room Lamp/light_level";
 const int MQTT_UPDATE_FREQ = 100;
-WiFiClient client2;
-PubSubClient mqtt_client(client2);
+WiFiClient client;
+PubSubClient mqtt_client(client);
 int mqtt_tics = 0;
 
 // pin connections
@@ -33,15 +33,21 @@ const int LIGHT_LEVELS     = 10;
 const int TIC_LENGTH       = 100;
 
 // light modes
-const char* const LEVEL_NAMES[] = { "STATIC", "FLASH", "BREATH", "PULSE" };
+const char* const MODE_NAMES[] = { "STATIC", "FLASH", "BREATH", "PULSE" };
 const int STATIC_MODE = 0;
 const int FLASH_MODE  = 1;
 const int BREATH_MODE = 2;
 const int PULSE_MODE  = 3;
 
+// light states
+const char* const STATE_NAMES[] = { "OFF", "ON" };
+const int OFF_STATE = 0;
+const int ON_STATE  = 1;
+
 // light state
 int light_level = OFF_BRIGHTNESS;
 int light_mode = STATIC_MODE;
+int light_state = OFF_STATE;
 int mode_data = OFF_BRIGHTNESS;
 int tics = 0;
 bool button_state = false;
@@ -107,204 +113,16 @@ void loop()
   if (new_button_state == LOW && button_state == HIGH)
   {
     // toggle light
-    if (light_mode == STATIC_MODE && light_level == OFF_BRIGHTNESS)
+    if (light_state == OFF_STATE)
     {
-      light_mode = STATIC_MODE;
-      light_level = MAX_BRIGHTNESS;
+      light_state = ON_STATE;
     }
     else
     {
-      light_mode = STATIC_MODE;
-      light_level = OFF_BRIGHTNESS;
+      light_state = OFF_STATE;
     }
   }
   button_state = new_button_state;
-
-  // check for incoming clients
-  client = server.available();
-  if (client)
-  {
-    String currentLine = "";
-    while (client.connected())
-    {
-      // parse request
-      // format: command:data
-      String path = "";
-      String command = "";
-      String data = "";
-      boolean post = false;
-      while (client.available())
-      {
-        char c = client.read();
-        if (c == '\n')
-        {
-          if (currentLine.startsWith("POST") || currentLine.startsWith("GET"))
-          {
-            path = currentLine.substring(currentLine.indexOf(" ")+1);
-            path = path.substring(0, path.indexOf(" "));
-          }
-          if (currentLine.startsWith("POST"))
-          {
-            post = true;
-          }
-          currentLine = "";
-        }
-        else if (c != '\r')
-        {
-          currentLine += c;
-        }
-      }
-      if (post && currentLine.length() > 0)
-      {
-        int idx = currentLine.indexOf(":");
-        command = currentLine.substring(0, idx);
-        data = currentLine.substring(idx+1);
-      }
-      
-      if (command.length() > 0)
-      {
-        Serial.print("Path: ");
-        Serial.println(path);
-        Serial.print("Command: ");
-        Serial.println(command);
-        Serial.print("Data: ");
-        Serial.println(data);
-
-        // Check the client request
-        String req = currentLine.substring(currentLine.lastIndexOf('/')+1);
-        command.toUpperCase();
-        if (data.length() > 0)
-        {
-          mode_data = data.toInt();
-        }
-        else
-        {
-          mode_data = MAX_BRIGHTNESS;
-        }
-        if (command == "ON")
-        {
-          light_mode = STATIC_MODE;
-        }
-        else if (command == "OFF")
-        {
-          light_mode = STATIC_MODE;
-          mode_data = OFF_BRIGHTNESS;
-        }
-        else if (command == "UP")
-        {
-          light_mode = STATIC_MODE;
-          if (data.length() > 0)
-          {
-            mode_data = light_level + data.toInt();
-          }
-          else
-          {
-            mode_data = light_level + MAX_BRIGHTNESS / LIGHT_LEVELS;
-          }
-        }
-        else if (command == "DOWN")
-        {
-          light_mode = STATIC_MODE;
-          if (data.length() > 0)
-          {
-            mode_data = light_level - data.toInt();
-          }
-          else
-          {
-            mode_data = light_level - MAX_BRIGHTNESS / LIGHT_LEVELS;
-          }
-        }
-        else if (command == "FLASH")
-        {
-          light_mode = FLASH_MODE;
-        }
-        else if (command == "BREATH")
-        {
-          light_mode = BREATH_MODE;
-        }
-        else if (command == "PULSE")
-        {
-          light_mode = PULSE_MODE;
-        }
-        tics = 0;
-      
-        // HTTP headers always start with a response code (e.g. HTTP/1.1 200 OK)
-        // and a content-type so the client knows what's coming, then a blank line:
-        client.println("HTTP/1.1 200 OK");
-        client.println("Content-type:text/html");
-        client.println();
-
-        // the content of the HTTP response follows the header:
-        client.print("SSID: ");
-        client.print(WiFi.SSID());
-        client.print("<br>");
-        client.print("IP Address: ");
-        client.print(WiFi.localIP());
-        client.print("<br>");
-        client.print("Signal Strength (RSSI): ");
-        client.print(WiFi.RSSI());
-        client.print(" dBm");
-        client.print("<br>");
-        client.print("Brightness: ");
-        client.print(100 * (light_level) / MAX_BRIGHTNESS);
-        client.print("% (");
-        client.print(light_level);
-        client.print(")");
-        client.println();
-      }
-      else if (path == "/get_mode")
-      {
-        client.println("HTTP/1.1 200 OK");
-        client.println("Content-type:text/html");
-        client.println();
-        client.println(light_mode);
-      }
-      else if (path == "/get_brightness")
-      {
-        client.println("HTTP/1.1 200 OK");
-        client.println("Content-type:text/html");
-        client.println();
-        client.println(light_level);
-      }
-      else if (path == "/get_brightness_pct")
-      {
-        client.println("HTTP/1.1 200 OK");
-        client.println("Content-type:text/html");
-        client.println();
-        client.print(100 * light_level / 255);
-        client.println("%");
-      }
-      else if (path == "/get_json")
-      {
-        client.println("HTTP/1.1 200 OK");
-        client.println("Content-type:application/json");
-        client.println();
-        client.print("{ \"light_mode\": ");
-        client.print(light_mode);
-        client.print(", \"light_level\": ");
-        client.print(light_level);
-        client.print(", \"light_pct\": ");
-        client.print(100 * light_level / 255);
-        client.println(" }");
-      }
-      else if (post)
-      {
-        client.println("HTTP/1.1 200 OK");
-        client.println("Content-type:text/html");
-        client.println();
-        client.println("Invalid command");
-      }
-      else
-      {
-        client.println("HTTP/1.1 200 OK");
-        client.println("Content-type:text/html");
-        client.println();
-        client.println("Light");
-      }
-      
-      client.stop();
-    }
-  }
 
   int tics_per_side = 0;
   int delta_per_side = 0;
@@ -390,19 +208,18 @@ void loop()
     light_level = OFF_BRIGHTNESS;
   }
 
-  // indicator light is inverse of actual light
-  if (light_mode == STATIC_MODE && light_level == OFF_BRIGHTNESS)
+  // output
+  if (light_state == ON_STATE)
   {
-    digitalWrite(INDICATOR_PIN, HIGH);
+    analogWrite(CONTROL_PIN, light_level);
+    digitalWrite(INDICATOR_PIN, LOW);
+    //Serial.println(light_level);
   }
   else
   {
-    digitalWrite(INDICATOR_PIN, LOW);
+    analogWrite(CONTROL_PIN, 0);
+    digitalWrite(INDICATOR_PIN, HIGH);
   }
-
-  // output
-  analogWrite(CONTROL_PIN, light_level);
-  //Serial.println(light_level);
 
   // mqtt
   if (mqtt_tics == 0)
@@ -411,10 +228,12 @@ void loop()
     {
       Serial.println("Reconnecting");
       mqtt_client.connect(DEVICE_ID);
+      mqtt_client.subscribe(STATE_TOPIC);
       mqtt_client.subscribe(MODE_TOPIC);
       mqtt_client.subscribe(LEVEL_TOPIC);
     }
-    mqtt_client.publish(MODE_TOPIC, LEVEL_NAMES[light_mode]);
+    mqtt_client.publish(STATE_TOPIC, STATE_NAMES[light_state]);
+    mqtt_client.publish(MODE_TOPIC, MODE_NAMES[light_mode]);
     char buff[3];
     mqtt_client.publish(LEVEL_TOPIC, itoa(mode_data, buff, 10));
   }
@@ -456,12 +275,29 @@ void onUpdate(char* topic, byte* payload, unsigned int len)
     // get index of given light mode
     for (int i = 0; i < 4; ++i)
     {
-      if (strcmp(LEVEL_NAMES[i], value) == 0)
+      if (strcmp(MODE_NAMES[i], value) == 0)
       {
         if (light_mode != i)
         {
           light_mode = i;
           Serial.print("Light mode updated to: ");
+          Serial.println(i);
+        }
+        break;
+      }
+    }
+  }
+  else if (strcmp(topic, STATE_TOPIC) == 0)
+  {
+    // get index of given light state
+    for (int i = 0; i < 2; ++i)
+    {
+      if (strcmp(STATE_NAMES[i], value) == 0)
+      {
+        if (light_state != i)
+        {
+          light_state = i;
+          Serial.print("Light state updated to: ");
           Serial.println(i);
         }
         break;
