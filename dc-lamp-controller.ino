@@ -3,8 +3,8 @@
 #include <PubSubClient.h>
 
 // wifi
-const char SSID[] = "ssid";
-const char PASS[] = "password";
+const char SSID[] = "-----";
+const char PASS[] = "liamisthebest";
 
 int status = WL_IDLE_STATUS;
 WiFiServer server(80);
@@ -75,7 +75,7 @@ void setup()
   // attempt to connect to Wifi network:
   while (status != WL_CONNECTED)
   {
-    Serial.print("Attempting to connect to Network named: ");
+    Serial.print("Attempting to connect to network named: ");
     Serial.println(SSID); 
 
     // Connect to WPA/WPA2 network
@@ -100,6 +100,8 @@ void setup()
 
 void loop()
 {
+  mqtt_client.loop();
+    
   // check for new button press
   bool new_button_state = digitalRead(BUTTON_PIN);
   if (new_button_state == LOW && button_state == HIGH)
@@ -407,11 +409,11 @@ void loop()
   {
     if (!mqtt_client.connected())
     {
+      Serial.println("Reconnecting");
       mqtt_client.connect(DEVICE_ID);
       mqtt_client.subscribe(MODE_TOPIC);
       mqtt_client.subscribe(LEVEL_TOPIC);
     }
-    mqtt_client.loop();
     mqtt_client.publish(MODE_TOPIC, LEVEL_NAMES[light_mode]);
     char buff[3];
     mqtt_client.publish(LEVEL_TOPIC, itoa(mode_data, buff, 10));
@@ -429,21 +431,29 @@ void loop()
 
 void onUpdate(char* topic, byte* payload, unsigned int len)
 {
-  // TODO updates come in super delayed and appear to get worse over time
   // TODO look into preventing updates from Arduino coming through
-  Serial.print("Got update on ");
-  Serial.print(topic);
-  Serial.print(" of length ");
-  Serial.println(len);
-  char value[len];
+  //Serial.print("Got update on ");
+  //Serial.print(topic);
+  //Serial.print(" of length ");
+  //Serial.println(len);
+
+  // convert payload to char array
+  char value[len+1];
   for (int i = 0; i < len; ++i)
   {
     value[i] = (char) payload[i];
   }
+  value[len] = '\0';
+
+  // convert to upper case
+  String val_str = String(value);
+  val_str.toUpperCase();
+  val_str.toCharArray(value, len+1);
+
+  // check topic
   if (strcmp(topic, MODE_TOPIC) == 0)
   {
-    // TODO seems to have ! after externally pushed strings, but length doesn't include it
-    Serial.println(value);
+    // get index of given light mode
     for (int i = 0; i < 4; ++i)
     {
       if (strcmp(LEVEL_NAMES[i], value) == 0)
@@ -451,7 +461,7 @@ void onUpdate(char* topic, byte* payload, unsigned int len)
         if (light_mode != i)
         {
           light_mode = i;
-          Serial.print("Changed light mode to: ");
+          Serial.print("Light mode updated to: ");
           Serial.println(i);
         }
         break;
@@ -460,12 +470,12 @@ void onUpdate(char* topic, byte* payload, unsigned int len)
   }
   else if (strcmp(topic, LEVEL_TOPIC) == 0)
   {
-    int level = String(value).toInt();
+    int level = val_str.toInt();
     if (level != mode_data)
     {
-      Serial.print("Changed light level to: ");
-      Serial.println(value);
       mode_data = level;
+      Serial.print("Light level updated to: ");
+      Serial.println(level);
     }
   }
 }
