@@ -297,6 +297,9 @@ void onUpdate(char* topic, byte* payload, unsigned int len)
         if (light_state != i)
         {
           light_state = i;
+          if (light_state == ON_STATE && mode_data == 0) {
+            mode_data = MAX_BRIGHTNESS;
+          }
           Serial.print("Light state updated to: ");
           Serial.println(i);
         }
